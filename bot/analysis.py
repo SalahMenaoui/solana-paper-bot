@@ -2,11 +2,23 @@
 Calcul des "résultats" de chaque token à 24 h, partagé par stats.py et wallets.py
 (et réutilisable par le paper trader de la phase 2).
 """
+import os
+import sqlite3
+import sys
 import time
+
+from bot import config, db
 
 HOUR = 3600
 HORIZON_H = 24       # on évalue la performance à 24 h
 TOLERANCE_H = 4      # même tolérance que le checkpoint 24h dans config.py
+
+
+def open_analysis_db() -> sqlite3.Connection:
+    """Ouvre data/all.db (toutes les données fusionnées), construite par pull_data.py."""
+    if not os.path.exists(config.ANALYSIS_DB_PATH):
+        sys.exit(f"{config.ANALYSIS_DB_PATH} introuvable : lance d'abord  python pull_data.py")
+    return db.connect(config.ANALYSIS_DB_PATH)
 
 
 def token_outcomes(conn, now: int | None = None) -> dict[str, dict]:

@@ -5,8 +5,7 @@ Usage : python stats.py
 import statistics
 import time
 
-from bot import db
-from bot.analysis import token_outcomes
+from bot.analysis import open_analysis_db, token_outcomes
 
 # Tranches de performance (multiplicateur du prix par rapport à t0).
 BUCKETS = [
@@ -34,7 +33,7 @@ def print_distribution(title: str, values: list[float]) -> None:
 
 
 def main() -> None:
-    conn = db.connect()
+    conn = open_analysis_db()
     now = int(time.time())
 
     total = conn.execute("SELECT COUNT(*) FROM tokens").fetchone()[0]

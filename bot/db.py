@@ -8,6 +8,22 @@ import sqlite3
 
 from bot import config
 
+HOLDERS_DDL = """
+-- Gros holders "humains" de chaque token à t0 (base de l'analyse des wallets).
+-- WITHOUT ROWID : la table est rangée directement par sa clé (2x plus compact).
+-- L'index par wallet n'est créé que dans data/all.db (analyse), pas dans les bases du bot.
+CREATE TABLE IF NOT EXISTS holder_appearances (
+    token_address TEXT NOT NULL REFERENCES tokens(address),
+    wallet        TEXT NOT NULL,
+    rank          INTEGER,
+    pct           REAL,
+    is_insider    INTEGER,
+    is_creator    INTEGER,
+    recorded_at   INTEGER,
+    PRIMARY KEY (token_address, wallet)
+) WITHOUT ROWID;
+"""
+
 SCHEMA = """
 -- Tokens vus mais pas encore enregistrés (on attend leur paire DexScreener).
 CREATE TABLE IF NOT EXISTS candidates (
@@ -76,19 +92,7 @@ CREATE TABLE IF NOT EXISTS snapshots (
 );
 CREATE INDEX IF NOT EXISTS idx_snapshots_token ON snapshots(token_address, measured_at);
 
--- Gros holders "humains" de chaque token à t0 (base de l'analyse des wallets).
-CREATE TABLE IF NOT EXISTS holder_appearances (
-    token_address TEXT NOT NULL REFERENCES tokens(address),
-    wallet        TEXT NOT NULL,
-    rank          INTEGER,
-    pct           REAL,
-    is_insider    INTEGER,
-    is_creator    INTEGER,
-    recorded_at   INTEGER,
-    PRIMARY KEY (token_address, wallet)
-);
-CREATE INDEX IF NOT EXISTS idx_holders_wallet ON holder_appearances(wallet);
-
+""" + HOLDERS_DDL + """
 -- Journal des runs.
 CREATE TABLE IF NOT EXISTS runs (
     id                 INTEGER PRIMARY KEY,
@@ -117,7 +121,28 @@ def connect(path: str = config.DB_PATH) -> sqlite3.Connection:
     conn.row_factory = sqlite3.Row          # accès aux colonnes par nom : row["price_usd"]
     conn.execute("PRAGMA foreign_keys = ON")
     conn.executescript(SCHEMA)
+    _migrate(conn)
     return conn
+
+
+def _migrate(conn) -> None:
+    """Met à niveau une base créée par une ancienne version du schéma."""
+    sql = conn.execute(
+        "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'holder_appearances'"
+    ).fetchone()[0]
+    if "WITHOUT ROWID" not in sql.upper():
+        conn.execute("PRAGMA foreign_keys = OFF")   # simple copie de lignes existantes
+        conn.executescript("""
+            BEGIN;
+            DROP INDEX IF EXISTS idx_holders_wallet;
+            ALTER TABLE holder_appearances RENAME TO holder_appearances_old;
+        """ + HOLDERS_DDL + """
+            INSERT INTO holder_appearances SELECT * FROM holder_appearances_old;
+            DROP TABLE holder_appearances_old;
+            COMMIT;
+        """)
+        conn.execute("PRAGMA foreign_keys = ON")
+        conn.execute("VACUUM")
 
 
 # --- Candidats -------------------------------------------------------------------

@@ -14,15 +14,14 @@ import statistics
 import sys
 from collections import defaultdict
 
-from bot import db
-from bot.analysis import token_outcomes
+from bot.analysis import open_analysis_db, token_outcomes
 
 GOOD_PEAK = 3.0   # un token "gagnant" = a atteint au moins x3 dans les 24 h
 
 
 def main() -> None:
     min_appearances = int(sys.argv[1]) if len(sys.argv) > 1 else 3
-    conn = db.connect()
+    conn = open_analysis_db()
     outcomes = token_outcomes(conn)
 
     # wallet -> liste des résultats des tokens où il était gros holder à t0

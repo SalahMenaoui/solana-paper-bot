@@ -6,7 +6,7 @@ on:
   workflow_dispatch:          # bouton "Run workflow" pour lancer à la main
 
 permissions:
-  contents: write             # nécessaire pour committer data/bot.db
+  contents: write             # nécessaire pour pousser la branche data
 
 # Jamais deux runs en même temps (sinon conflit sur la base).
 concurrency:
@@ -16,9 +16,16 @@ concurrency:
 jobs:
   collect:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 10
+    env:
+      BOT_DATA_DIR: datastore   # la branche data est extraite dans ce dossier
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v5          # le code (branche main)
+
+      - uses: actions/checkout@v5          # les données (branche data, fichiers .gz)
+        with:
+          ref: data
+          path: datastore
 
       - uses: actions/setup-python@v6
         with:
@@ -28,17 +35,20 @@ jobs:
       - run: pip install -r requirements.txt
 
       - name: Run collector
-        run: python collect.py
+        run: python collect.py   # décompresse bot.db.gz, et les archives seulement si besoin
 
-      - name: Commit database
+      - name: Save data
         if: success() || failure()   # on sauvegarde même si le script a planté en cours de route
+        working-directory: datastore
         run: |
+          python -m bot.storage pack
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add data/bot.db
-          if git diff --cached --quiet; then
-            echo "Rien à committer"
-            exit 0
-          fi
-          git commit -m "data: run $(date -u +%Y-%m-%dT%H:%MZ)"
-          git push || (git pull --rebase && git push)
+          # Un seul commit sur la branche data, réécrit à chaque run : l'historique ne grossit pas.
+          git checkout --quiet --orphan snapshot
+          git add -A
+          git commit --quiet -m "data: run $(date -u +%Y-%m-%dT%H:%MZ)"
+          git push --force origin snapshot:data
+        env:
+          BOT_DATA_DIR: .
+          PYTHONPATH: ${{ github.workspace }}

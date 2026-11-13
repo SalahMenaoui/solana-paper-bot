@@ -7,8 +7,16 @@ Les durées sont en secondes sauf si le nom finit par _H (heures) ou _MIN (minut
 import os
 
 # --- Fichiers -----------------------------------------------------------------
-# Variable d'environnement BOT_DB_PATH = utiliser une autre base (pour tester).
-DB_PATH = os.environ.get("BOT_DB_PATH", "data/bot.db")
+# Organisation (voir README, section "Stockage") :
+#   data/bot.db                   base "live" : seulement les tokens encore suivis (< 8 jours)
+#   data/archive/bot-AAAA-MM.db   tokens dont le suivi est fini, rangés par mois de découverte
+#   data/all.db                   copie fusionnée de tout (locale, pour stats.py / wallets.py)
+# Sur GitHub, ces fichiers sont stockés compressés (.gz) sur la branche "data".
+# Variables d'environnement : BOT_DATA_DIR = autre dossier, BOT_DB_PATH = autre base live (tests).
+DATA_DIR = os.environ.get("BOT_DATA_DIR", "data")
+DB_PATH = os.environ.get("BOT_DB_PATH", os.path.join(DATA_DIR, "bot.db"))
+ARCHIVE_DIR = os.path.join(DATA_DIR, "archive")
+ANALYSIS_DB_PATH = os.path.join(DATA_DIR, "all.db")
 
 # --- Budget d'un run (GitHub Actions doit finir en < 3 min) --------------------
 # Le setup d'Actions prend ~30 s, donc le script s'arrête de lui-même après ça.
@@ -75,6 +83,13 @@ RUG_LIQ_ABS_APPLIES_FROM_USD = 5000
 RUG_MISSING_IN_A_ROW = 2
 DEAD_PRICE_FRACTION = 0.05
 DEAD_VOLUME_H1_USD = 100
+
+# --- Stockage -----------------------------------------------------------------
+# Les candidats déjà traités (promus / trop vieux / expirés) sont effacés après ce délai.
+CANDIDATE_RETENTION_H = 48
+# Les lignes du journal des runs restent dans la base live ce nombre de jours,
+# puis partent dans l'archive du mois.
+RUNS_RETENTION_DAYS = 7
 
 # --- Holders (analyse des wallets) ----------------------------------------------
 TOP_HOLDERS_TO_STORE = 20   # on garde les 20 plus gros holders "humains" (hors pools)

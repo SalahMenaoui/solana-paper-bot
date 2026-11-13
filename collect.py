@@ -5,14 +5,15 @@ Ordre des étapes :
   1. SUIVI      : re-mesurer les tokens déjà connus (urgent : les checkpoints ont une fenêtre)
   2. DÉCOUVERTE : récupérer les nouveaux tokens des différentes sources -> table candidates
   3. SNAPSHOT   : pour les candidats qui ont une paire, mesure t0 + RugCheck + holders
-  4. LOG        : résumé affiché + ligne dans la table runs
+  4. ARCHIVAGE  : les tokens dont le suivi est fini partent dans data/archive/ (voir bot/storage.py)
+  5. LOG        : résumé affiché + ligne dans la table runs
 
 PAPER TRADING / RECHERCHE UNIQUEMENT : aucun wallet, aucune clé, aucun trade.
 """
 import os
 import time
 
-from bot import config, db, dexscreener, rugcheck, tracker
+from bot import config, db, dexscreener, rugcheck, storage, tracker
 from bot.http_client import ApiError
 
 
@@ -29,6 +30,7 @@ class RunLog:
         self.checkpoints_done = 0
         self.checkpoints_missed = 0
         self.new_rugs = 0
+        self.archived = 0
         self.errors: list[str] = []
         self.notes: list[str] = []
 
@@ -228,7 +230,15 @@ def _save_new_token(conn, cand, pair, report: dict, measured_at: int) -> None:
 
 
 # ---------------------------------------------------------------------------------
-# 4. LOG
+# 4. ARCHIVAGE
+# ---------------------------------------------------------------------------------
+
+def archive(conn, log: RunLog) -> None:
+    log.archived = storage.archive_finished(conn, int(time.time()))
+
+
+# ---------------------------------------------------------------------------------
+# 5. LOG
 # ---------------------------------------------------------------------------------
 
 def finish(conn, log: RunLog) -> None:
@@ -254,6 +264,7 @@ def finish(conn, log: RunLog) -> None:
     print(f"Mesures de suivi          : {log.measurements}")
     print(f"Checkpoints faits/manqués : {log.checkpoints_done} / {log.checkpoints_missed}")
     print(f"Nouveaux rugs détectés    : {log.new_rugs}")
+    print(f"Tokens archivés           : {log.archived}")
     print(f"Erreurs                   : {len(log.errors)}")
     for note in log.notes:
         print(f"Note                      : {note}")
@@ -261,10 +272,12 @@ def finish(conn, log: RunLog) -> None:
 
 
 def main() -> None:
+    storage.gunzip_if_needed(config.DB_PATH)
     conn = db.connect()
     log = RunLog()
     # Chaque étape est protégée : si l'une plante, les suivantes tournent quand même.
-    for step_name, step in [("suivi", follow_up), ("découverte", discover), ("snapshot", snapshot_new_tokens)]:
+    for step_name, step in [("suivi", follow_up), ("découverte", discover), ("snapshot", snapshot_new_tokens),
+                            ("archivage", archive)]:
         print(f"--- {step_name} ---")
         try:
             step(conn, log)
