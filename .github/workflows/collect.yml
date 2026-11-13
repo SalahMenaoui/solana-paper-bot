@@ -2,7 +2,9 @@ name: collect
 
 on:
   schedule:
-    - cron: "*/30 * * * *"   # toutes les 30 min (GitHub peut avoir du retard)
+    # Toutes les 30 min, à :07 et :37 : GitHub retarde ou saute souvent les runs planifiés
+    # à l'heure pile et à la demie (créneaux surchargés).
+    - cron: "7,37 * * * *"
   workflow_dispatch:          # bouton "Run workflow" pour lancer à la main
 
 permissions:
