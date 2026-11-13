@@ -115,23 +115,25 @@ def _move_month(conn, path: str, month: str, addresses: list[str], runs_limit: i
         conn.execute("DELETE FROM temp.moving")
         conn.executemany("INSERT INTO temp.moving VALUES (?)", [(a,) for a in addresses])
         cols = ", ".join(SNAPSHOT_COLUMNS)
+        tok = ", ".join(db.columns(conn, "tokens"))
+        hold = ", ".join(db.columns(conn, "holder_appearances"))
         in_moving = "IN (SELECT address FROM moving)"
         statements = [
             # Idempotent : on efface d'abord ce que l'archive aurait déjà pour ces tokens.
             f"DELETE FROM arc.snapshots WHERE token_address {in_moving}",
             f"DELETE FROM arc.holder_appearances WHERE token_address {in_moving}",
             f"DELETE FROM arc.tokens WHERE address {in_moving}",
-            f"INSERT INTO arc.tokens SELECT * FROM main.tokens WHERE address {in_moving}",
+            f"INSERT INTO arc.tokens ({tok}) SELECT {tok} FROM main.tokens WHERE address {in_moving}",
             # Sans la colonne id : les id de la base live peuvent être réutilisés.
             f"INSERT INTO arc.snapshots ({cols}) SELECT {cols} FROM main.snapshots WHERE token_address {in_moving}",
-            f"INSERT INTO arc.holder_appearances SELECT * FROM main.holder_appearances WHERE token_address {in_moving}",
+            f"INSERT INTO arc.holder_appearances ({hold}) SELECT {hold} FROM main.holder_appearances "
+            f"WHERE token_address {in_moving}",
             f"DELETE FROM main.snapshots WHERE token_address {in_moving}",
             f"DELETE FROM main.holder_appearances WHERE token_address {in_moving}",
             f"DELETE FROM main.tokens WHERE address {in_moving}",
         ]
         month_runs = ("started_at < ? AND strftime('%Y-%m', started_at, 'unixepoch') = ?", (runs_limit, month))
-        run_cols = "started_at, duration_s, new_tokens, measurements, checkpoints_done, checkpoints_missed, " \
-                   "new_rugs, errors, error_samples, db_size_kb"
+        run_cols = ", ".join(c for c in db.columns(conn, "runs") if c != "id")
         # Une seule transaction (ouverte implicitement par le 1er DELETE), sur les 2 bases.
         for sql in statements:
             conn.execute(sql)
@@ -160,15 +162,13 @@ def merge_all(data_dir: str = config.DATA_DIR, out_path: str | None = None) -> s
     if os.path.exists(tmp):
         os.remove(tmp)
     conn = db.connect(tmp)
-    cols = ", ".join(SNAPSHOT_COLUMNS)
     for src in sources:
+        db.connect(src).close()            # met le schéma de la source à jour si besoin
         conn.execute("ATTACH DATABASE ? AS src", (src,))
-        conn.execute("INSERT OR REPLACE INTO tokens SELECT * FROM src.tokens")
-        conn.execute(f"INSERT INTO snapshots ({cols}) SELECT {cols} FROM src.snapshots")
-        conn.execute("INSERT OR REPLACE INTO holder_appearances SELECT * FROM src.holder_appearances")
-        conn.execute("INSERT INTO runs SELECT NULL, started_at, duration_s, new_tokens, measurements, "
-                     "checkpoints_done, checkpoints_missed, new_rugs, errors, error_samples, db_size_kb "
-                     "FROM src.runs")
+        for table, verb, skip in [("tokens", "INSERT OR REPLACE", ()), ("snapshots", "INSERT", ("id",)),
+                                  ("holder_appearances", "INSERT OR REPLACE", ()), ("runs", "INSERT", ("id",))]:
+            cols = ", ".join(c for c in db.columns(conn, table) if c not in skip)
+            conn.execute(f"{verb} INTO {table} ({cols}) SELECT {cols} FROM src.{table}")
         conn.commit()
         conn.execute("DETACH DATABASE src")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_holders_wallet ON holder_appearances(wallet)")

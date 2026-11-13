@@ -63,7 +63,12 @@ CREATE TABLE IF NOT EXISTS tokens (
     status                   TEXT NOT NULL DEFAULT 'active',  -- active / rug
     rug_at                   INTEGER,
     rug_reason               TEXT,
-    missing_in_a_row         INTEGER NOT NULL DEFAULT 0
+    missing_in_a_row         INTEGER NOT NULL DEFAULT 0,
+    -- Ajouts du 2026-11-13 (NULL pour les tokens découverts avant) :
+    lp_locked_pct            REAL,             -- % de la liquidité verrouillée/brûlée (pondéré en $, tous pools)
+    lp_locked_usd            REAL,             -- liquidité verrouillée/brûlée en $ selon RugCheck
+    rc_liquidity_usd         REAL,             -- liquidité totale tous pools selon RugCheck
+    sol_price_usd            REAL              -- prix du SOL au moment du t0 (contexte de marché)
 );
 
 -- Une ligne par mesure. checkpoint = 't0', '1h', '6h', '24h', '48h', '72h', '7d'
@@ -105,7 +110,11 @@ CREATE TABLE IF NOT EXISTS runs (
     new_rugs           INTEGER,
     errors             INTEGER,
     error_samples      TEXT,
-    db_size_kb         INTEGER
+    db_size_kb         INTEGER,
+    -- Ajouts du 2026-11-13 (contexte de marché) :
+    new_candidates     INTEGER,                -- nb de nouveaux tokens vus dans les sources (activité)
+    sol_price_usd      REAL,
+    sol_change_h24     REAL                    -- variation du SOL sur 24 h, en %
 );
 """
 
@@ -125,8 +134,29 @@ def connect(path: str = config.DB_PATH) -> sqlite3.Connection:
     return conn
 
 
+# Colonnes ajoutées après la création des premières bases : (table, colonne, type).
+# Toujours ajouter les nouvelles colonnes À LA FIN des CREATE TABLE ci-dessus ET ici.
+ADDED_COLUMNS = [
+    ("tokens", "lp_locked_pct", "REAL"),
+    ("tokens", "lp_locked_usd", "REAL"),
+    ("tokens", "rc_liquidity_usd", "REAL"),
+    ("tokens", "sol_price_usd", "REAL"),
+    ("runs", "new_candidates", "INTEGER"),
+    ("runs", "sol_price_usd", "REAL"),
+    ("runs", "sol_change_h24", "REAL"),
+]
+
+
+def columns(conn, table: str, schema: str = "main") -> list[str]:
+    return [row[1] for row in conn.execute(f"PRAGMA {schema}.table_info({table})")]
+
+
 def _migrate(conn) -> None:
     """Met à niveau une base créée par une ancienne version du schéma."""
+    for table, column, kind in ADDED_COLUMNS:
+        if column not in columns(conn, table):
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {kind}")
+    conn.commit()
     sql = conn.execute(
         "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'holder_appearances'"
     ).fetchone()[0]

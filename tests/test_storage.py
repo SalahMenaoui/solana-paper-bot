@@ -102,3 +102,24 @@ def test_migration_table_holders(tmp_path):
         sql = c.execute("SELECT sql FROM sqlite_master WHERE name='holder_appearances'").fetchone()[0]
         assert "WITHOUT ROWID" in sql
         assert c.execute("SELECT COUNT(*) FROM holder_appearances").fetchone()[0] == 1
+
+
+def test_colonnes_ajoutees_et_archive_ancien_schema(tmp_path):
+    # Archive créée par l'ancienne version : pas de colonnes lp_* / sol_*.
+    archive_dir = tmp_path / "archive"
+    archive_dir.mkdir()
+    old = str(archive_dir / "bot-2026-11.db")
+    db.connect(old).close()
+    with sqlite3.connect(old) as c:
+        for table, column, _ in db.ADDED_COLUMNS:
+            c.execute(f"ALTER TABLE {table} DROP COLUMN {column}")
+        assert "lp_locked_pct" not in db.columns(c, "tokens")
+    conn = make_live(tmp_path)
+    conn.execute("UPDATE tokens SET lp_locked_pct = 80, sol_price_usd = 150")
+    conn.commit()
+    storage.archive_finished(conn, NOW, str(archive_dir))
+    with sqlite3.connect(old) as c:
+        assert c.execute("SELECT lp_locked_pct, sol_price_usd FROM tokens WHERE address='old'").fetchone() == (80, 150)
+    conn.close()
+    merged = storage.merge_all(str(tmp_path))
+    assert count(merged, "tokens", "lp_locked_pct = 80") == 2

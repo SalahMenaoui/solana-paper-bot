@@ -7,7 +7,7 @@ Aucun wallet, aucune clé privée, aucun trade réel, aucune IA. APIs gratuites 
 
 1. **suit** les tokens déjà connus : à chaque run pendant 6 h, toutes les ~2 h jusqu'à 24 h, puis aux checkpoints 48h / 72h / 7d (checkpoints officiels : 1h, 6h, 24h, 48h, 72h, 7d, avec une fenêtre de tolérance si le run est en retard) ;
 2. **découvre** les nouveaux tokens (profils, boosts et community takeovers DexScreener, nouveaux mints RugCheck) ;
-3. prend la **photo t0** : prix, liquidité, volume, achats/ventes, socials, mint/freeze authority, top 10 holders, score RugCheck, gros holders ;
+3. prend la **photo t0** : prix, liquidité, volume, achats/ventes, socials, mint/freeze authority, top 10 holders, score RugCheck, gros holders, % de liquidité verrouillée/brûlée, prix du SOL ;
 4. **archive** les tokens dont le suivi est fini (voir [Stockage](#stockage)) ;
 5. **enregistre** tout sur la branche `data` du repo (SQLite compressé).
 
@@ -49,7 +49,7 @@ Les temps sont des timestamps Unix UTC : `datetime(colonne, 'unixepoch')` pour l
 | `snapshots` | une ligne par mesure. `checkpoint` = `t0`, `1h`, `6h`, `24h`, `48h`, `72h`, `7d`, ou `NULL` pour une mesure intermédiaire. `measured_at` NULL = checkpoint manqué ; `delay_min` = retard réel |
 | `holder_appearances` | gros holders « humains » (hors pools) de chaque token à t0 |
 | `candidates` | tokens vus mais pas encore enregistrés (en attente d'une paire DexScreener) |
-| `runs` | journal de chaque run (durée, compteurs, erreurs, taille de la base) |
+| `runs` | journal de chaque run (durée, compteurs, erreurs, taille de la base) + contexte de marché : prix et variation 24 h du SOL, nb de nouveaux tokens vus |
 
 ## Stockage
 
@@ -73,5 +73,6 @@ Tous les seuils sont dans [`bot/config.py`](bot/config.py) : nb de tokens par ru
 ## À savoir
 
 - Les profils et boosts DexScreener sont payés par les créateurs : ce n'est pas un échantillon de *tous* les tokens. La colonne `source` permet de comparer les sources.
+- `lp_locked_pct` vaut 100 % pour un token encore sur la bonding curve pump.fun (personne ne peut retirer cette liquidité) : le critère n'a de sens qu'avec `dex_id` / `launchpad`. Ces colonnes (et `sol_price_usd`) sont vides pour les tokens découverts avant le 13/11/2026.
 - Le « meilleur prix » est échantillonné (toutes les 30 min à 2 h) : le vrai pic peut être plus haut.
 - RugCheck limite à ~15 requêtes par fenêtre : c'est ce qui plafonne le nombre de nouveaux tokens par run.

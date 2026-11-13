@@ -31,6 +31,7 @@ class RunLog:
         self.checkpoints_missed = 0
         self.new_rugs = 0
         self.archived = 0
+        self.sol: dict = {}           # prix du SOL au début du run (vide si indisponible)
         self.errors: list[str] = []
         self.notes: list[str] = []
 
@@ -191,7 +192,7 @@ def snapshot_new_tokens(conn, log: RunLog) -> None:
             continue
 
         try:
-            _save_new_token(conn, cand, pair, report, fetched_at)
+            _save_new_token(conn, cand, pair, report, fetched_at, log.sol.get("sol_price_usd"))
             conn.commit()
             log.new_tokens += 1
             if report["rc_rugged"]:
@@ -201,7 +202,7 @@ def snapshot_new_tokens(conn, log: RunLog) -> None:
             log.error(f"enregistrement {address[:8]}", exc)
 
 
-def _save_new_token(conn, cand, pair, report: dict, measured_at: int) -> None:
+def _save_new_token(conn, cand, pair, report: dict, measured_at: int, sol_price) -> None:
     address = cand["address"]
     base = pair.get("baseToken") or {}
     quote = pair.get("quoteToken") or {}
@@ -219,6 +220,7 @@ def _save_new_token(conn, cand, pair, report: dict, measured_at: int) -> None:
         **dexscreener.socials(pair),
         "rc_ok": 1,
         **{k: v for k, v in report.items() if k != "holders"},
+        "sol_price_usd": sol_price,
     }
     if report["rc_rugged"]:
         token_row.update(status="rug", rug_at=measured_at, rug_reason="rugcheck_rugged")
@@ -255,6 +257,8 @@ def finish(conn, log: RunLog) -> None:
         "errors": len(log.errors),
         "error_samples": "\n".join(log.errors[:10]),
         "db_size_kb": size_kb,
+        "new_candidates": log.new_candidates,
+        **log.sol,
     })
     conn.commit()
 
@@ -265,6 +269,7 @@ def finish(conn, log: RunLog) -> None:
     print(f"Checkpoints faits/manqués : {log.checkpoints_done} / {log.checkpoints_missed}")
     print(f"Nouveaux rugs détectés    : {log.new_rugs}")
     print(f"Tokens archivés           : {log.archived}")
+    print(f"Prix du SOL               : {log.sol.get('sol_price_usd')} $ ({log.sol.get('sol_change_h24')} % sur 24 h)")
     print(f"Erreurs                   : {len(log.errors)}")
     for note in log.notes:
         print(f"Note                      : {note}")
@@ -275,6 +280,10 @@ def main() -> None:
     storage.gunzip_if_needed(config.DB_PATH)
     conn = db.connect()
     log = RunLog()
+    try:
+        log.sol = dexscreener.sol_market()
+    except ApiError as exc:
+        log.error("prix du SOL", exc)
     # Chaque étape est protégée : si l'une plante, les suivantes tournent quand même.
     for step_name, step in [("suivi", follow_up), ("découverte", discover), ("snapshot", snapshot_new_tokens),
                             ("archivage", archive)]:

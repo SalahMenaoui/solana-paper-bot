@@ -45,6 +45,7 @@ def report(mint: str) -> dict:
             "is_creator": int(wallet == creator or kind == "CREATOR"),
         })
     holders = holders[: config.TOP_HOLDERS_TO_STORE]
+    lp = lp_lock(data.get("markets") or [])
 
     return {
         "mint_authority_enabled": int(bool(data.get("mintAuthority"))),
@@ -57,5 +58,26 @@ def report(mint: str) -> dict:
         "launchpad": (data.get("launchpad") or {}).get("platform"),
         "creator": creator,
         "total_holders": data.get("totalHolders"),
+        **lp,
         "holders": holders,
+    }
+
+
+def lp_lock(markets: list[dict]) -> dict:
+    """
+    Part de la liquidité verrouillée ou brûlée, tous pools confondus, pondérée en $
+    (un gros pool verrouillé compte plus qu'un petit pool vide).
+    Note : une bonding curve pump.fun apparaît verrouillée à 100 % (personne ne peut retirer
+    la liquidité) ; c'est le passage sur un vrai AMM qui compte -> comparer avec launchpad / dex_id.
+    """
+    total = locked = 0.0
+    for market in markets:
+        lp = market.get("lp") or {}
+        size = (lp.get("quoteUSD") or 0) + (lp.get("baseUSD") or 0)
+        total += size
+        locked += size * min(max(lp.get("lpLockedPct") or 0, 0), 100) / 100
+    return {
+        "lp_locked_pct": round(100 * locked / total, 2) if total > 0 else None,
+        "lp_locked_usd": round(locked, 2) if markets else None,
+        "rc_liquidity_usd": round(total, 2) if markets else None,
     }

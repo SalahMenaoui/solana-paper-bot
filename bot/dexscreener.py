@@ -61,6 +61,19 @@ def best_pairs(addresses: list[str]) -> dict[str, dict]:
     return best
 
 
+SOL_MINT = "So11111111111111111111111111111111111111112"
+
+
+def sol_market() -> dict:
+    """Prix du SOL et sa variation 24 h (paire SOL la plus liquide) : contexte de marché."""
+    pair = best_pairs([SOL_MINT]).get(SOL_MINT)
+    if not pair:
+        return {}
+    price = pair_metrics(pair)["price_usd"]
+    change = (pair.get("priceChange") or {}).get("h24")
+    return {"sol_price_usd": price, "sol_change_h24": float(change) if change is not None else None}
+
+
 def pair_metrics(pair: dict) -> dict:
     """Extrait les chiffres de marché d'une paire (ce qu'on stocke dans snapshots)."""
     txns = pair.get("txns") or {}
